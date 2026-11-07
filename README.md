@@ -31,7 +31,9 @@ Zeskanuj kod QR: na Androidzie w Expo Go, na iOS aparatem.
 ## Sprawdzenia
 
 ```sh
-bunx tsc --noEmit
+bun run test
+bun run typecheck
+bunx expo lint
 bunx expo-doctor
 ```
 
