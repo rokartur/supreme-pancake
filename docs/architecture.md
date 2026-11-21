@@ -7,11 +7,15 @@ src/
 ├── app/                      # warstwa prezentacji: ekrany Expo Router (każdy plik = ekran)
 │   ├── _layout.tsx           # nawigator Stack i tytuły ekranów
 │   ├── index.tsx             # lista urządzeń z datą następnego przeglądu
-│   ├── device/new.tsx        # formularz dodawania urządzenia
-│   ├── device/[id].tsx       # szczegóły urządzenia + jego czynności serwisowe
-│   ├── action/new.tsx        # formularz dodawania czynności (deviceId w parametrze)
-│   └── action/[id].tsx       # szczegóły czynności serwisowej
+│   ├── device/new.tsx        # dodawanie urządzenia (DeviceForm)
+│   ├── device/edit.tsx       # edycja urządzenia (DeviceForm z danymi z bazy)
+│   ├── device/[id].tsx       # szczegóły urządzenia + czynności, usuwanie z blokadą BR-04
+│   ├── action/new.tsx        # dodawanie czynności (deviceId w parametrze)
+│   ├── action/edit.tsx       # edycja czynności
+│   └── action/[id].tsx       # szczegóły czynności, usuwanie z potwierdzeniem
 ├── components/ui.tsx         # natywne komponenty z @expo/ui: Screen, FormField, Row, SubmitButton, LoadState
+├── components/device-form.tsx         # wspólny formularz urządzenia (dodawanie i edycja)
+├── components/service-action-form.tsx # wspólny formularz czynności (dodawanie i edycja)
 ├── use-focus-data.ts         # hook: odczyt danych przy każdym wejściu na ekran
 ├── maintenance.ts            # logika aplikacyjna: walidacja + zapis (przypadki użycia)
 ├── domain.ts                 # model, walidacja, reguły biznesowe; czysty TypeScript
@@ -26,7 +30,7 @@ flowchart TD
   subgraph UI["Prezentacja (src/app, src/components)"]
     List["Lista urządzeń<br/>index.tsx"]
     DeviceDetails["Szczegóły urządzenia<br/>device/[id].tsx"]
-    Forms["Formularze<br/>device/new.tsx, action/new.tsx"]
+    Forms["Formularze<br/>DeviceForm, ServiceActionForm<br/>(new.tsx, edit.tsx)"]
     ActionDetails["Szczegóły czynności<br/>action/[id].tsx"]
   end
   subgraph State["Stan"]
@@ -34,11 +38,11 @@ flowchart TD
     Focus["useFocusData: dane ekranu<br/>odświeżane przy fokusie"]
   end
   subgraph Logic["Logika (src/maintenance.ts, src/domain.ts)"]
-    UseCases["addDevice / addServiceAction"]
+    UseCases["addDevice, editDevice, removeDevice,<br/>addServiceAction, editServiceAction"]
     Rules["parseDevice, parseServiceAction,<br/>nextReviewDate"]
   end
   subgraph Data["Dostęp do danych (src/repository.ts)"]
-    Repo["listDevices, getDevice, insertDevice,<br/>listServiceActions, insertServiceAction"]
+    Repo["listDevices, getDevice, insertDevice, updateDevice, deleteDevice,<br/>listServiceActions, getServiceAction, insertServiceAction,<br/>updateServiceAction, deleteServiceAction"]
   end
   DB[("SQLite: maintenance-log.db")]
 
@@ -47,6 +51,8 @@ flowchart TD
   UseCases --> Repo
   Repo --> DB
   DB --> Repo --> Focus --> List & DeviceDetails & ActionDetails
+  DeviceDetails -->|"Usuń urządzenie"| UseCases
+  ActionDetails -->|"Usuń czynność"| Repo
   List & DeviceDetails --> Rules
 ```
 
@@ -98,22 +104,29 @@ erDiagram
 | BR-01: interwał > 0, koszt >= 0 | `parseDevice`, `parseCostCents` w `src/domain.ts`; `CHECK` w `src/repository.ts` |
 | BR-02: następny przegląd = ostatni przegląd + interwał | `nextReviewDate` w `src/domain.ts`; `MAX(date)` w `listDevices`/`getDevice` |
 | BR-03: puste nazwy niedozwolone, typy i zakresy | `parseDevice`, `parseServiceAction`, `isIsoDate` |
-| BR-04: czynność wymaga urządzenia, blokada usunięcia | klucz obcy z `ON DELETE RESTRICT` w `src/repository.ts` |
+| BR-04: czynność wymaga urządzenia, blokada usunięcia | `removeDevice` w `src/maintenance.ts` (komunikat z liczbą czynności), sprawdzenie przed potwierdzeniem w `device/[id].tsx`; klucz obcy z `ON DELETE RESTRICT` w `src/repository.ts` |
 
 ## Zarządzanie stanem i przepływ danych
 
 Źródłem prawdy jest baza SQLite. Aplikacja nie trzyma globalnego magazynu stanu (Redux, Zustand), bo każdy ekran potrzebuje danych tylko na czas wyświetlania:
 
-- **stan formularza** (`useState` w `device/new.tsx`, `action/new.tsx`): wpisany tekst, błędy walidacji, flaga `saving`; znika po wyjściu z ekranu;
+- **stan formularza** (`useState` w `DeviceForm`, `ServiceActionForm`): wpisany tekst, błędy walidacji, flaga `saving`; znika po wyjściu z ekranu. Formularz edycji startuje z wartościami rekordu z bazy (koszt jako tekst `"49,99"` przez `costText`);
 - **dane ekranu** (`useFocusData`): przy każdym wejściu na ekran (także po powrocie przyciskiem Wstecz) hook ponownie czyta dane z repozytorium.
 
 Przepływ po naciśnięciu „Zapisz”:
 
-1. `device/new.tsx` wywołuje `addDevice(form)` z `src/maintenance.ts`.
+1. `DeviceForm` (ekran `device/new.tsx` przekazuje mu `save={addDevice}`) wywołuje `addDevice(form)` z `src/maintenance.ts`.
 2. `addDevice` wywołuje `parseDevice`; przy błędach zwraca `{ errors, id: null }`, ekran pokazuje komunikaty pod polami i nic nie trafia do bazy.
 3. Dla poprawnych danych `insertDevice` w `src/repository.ts` generuje UUID i wykonuje `INSERT`.
-4. Ekran wywołuje `router.back()`. Lista odzyskuje fokus, `useFocusData` wywołuje `listDevices()` i lista pokazuje nowy rekord.
+4. Formularz wywołuje `router.back()`. Lista odzyskuje fokus, `useFocusData` wywołuje `listDevices()` i lista pokazuje nowy rekord.
 5. Wyjątek z bazy jest łapany w ekranie: `Alert` „Błąd zapisu”, formularz zachowuje wpisane dane.
+
+Edycja przechodzi tę samą drogę (`editDevice`, `editServiceAction`), ale wykonuje `UPDATE ... WHERE id = ?` z `id` z parametru trasy, więc nie może utworzyć nowego rekordu. Gdy `UPDATE` nie zmieni żadnego wiersza (rekord usunięto w międzyczasie), repozytorium rzuca błąd i formularz pokazuje „Błąd zapisu” zamiast zamknąć się jak po sukcesie.
+
+Usuwanie:
+
+- czynność: `Alert` z potwierdzeniem, `deleteServiceAction`, powrót; szczegóły urządzenia przy fokusie pokazują listę bez rekordu i przeliczony następny przegląd;
+- urządzenie z czynnościami: komunikat „Nie można usunąć urządzenia” z liczbą czynności, bez pytania o potwierdzenie; urządzenie bez czynności: potwierdzenie, `removeDevice`, powrót do listy. `removeDevice` sprawdza zależności jeszcze raz, a klucz obcy jest ostatnią blokadą.
 
 ## Decyzje projektowe
 
