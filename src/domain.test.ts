@@ -1,7 +1,7 @@
 /// <reference types="bun" />
 import { describe, expect, test } from "bun:test";
 
-import { formatCost, isIsoDate, nextReviewDate, parseCostCents, parseDevice, parseServiceAction } from "./domain";
+import { costText, formatCost, isIsoDate, nextReviewDate, parseCostCents, parseDevice, parseServiceAction } from "./domain";
 
 describe("parseDevice", () => {
   test("accepts a named device with a positive interval", () => {
@@ -50,6 +50,12 @@ test("parseCostCents keeps decimal precision", () => {
   expect(parseCostCents("12.05")).toBe(1205);
   expect(parseCostCents("1.234")).toBeNull();
   expect(formatCost(1205)).toBe("12,05 zł");
+});
+
+test("costText fills the edit form with a cost parseCostCents reads back", () => {
+  expect(costText(4999)).toBe("49,99");
+  expect(costText(5)).toBe("0,05");
+  expect(parseCostCents(costText(120050))).toBe(120050);
 });
 
 test("isIsoDate rejects out of range months", () => {

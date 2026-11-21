@@ -50,6 +50,21 @@ export async function insertDevice(device: Omit<Device, "id">) {
   return id;
 }
 
+// 0 changes means the row is gone, and the edit form must not close as if it saved.
+export async function updateDevice(device: Device) {
+  const { changes } = await db.runAsync(
+    "UPDATE devices SET name = ?, intervalDays = ? WHERE id = ?",
+    device.name,
+    device.intervalDays,
+    device.id,
+  );
+  if (changes === 0) throw new Error(`Device ${device.id} not found`);
+}
+
+export async function deleteDevice(id: string) {
+  await db.runAsync("DELETE FROM devices WHERE id = ?", id);
+}
+
 export function listServiceActions(deviceId: string) {
   return db.getAllAsync<ServiceAction>(
     "SELECT * FROM service_actions WHERE deviceId = ? ORDER BY date DESC",
@@ -72,4 +87,19 @@ export async function insertServiceAction(action: Omit<ServiceAction, "id">) {
     action.costCents,
   );
   return id;
+}
+
+export async function updateServiceAction(action: Omit<ServiceAction, "deviceId">) {
+  const { changes } = await db.runAsync(
+    "UPDATE service_actions SET date = ?, description = ?, costCents = ? WHERE id = ?",
+    action.date,
+    action.description,
+    action.costCents,
+    action.id,
+  );
+  if (changes === 0) throw new Error(`Service action ${action.id} not found`);
+}
+
+export async function deleteServiceAction(id: string) {
+  await db.runAsync("DELETE FROM service_actions WHERE id = ?", id);
 }

@@ -54,10 +54,14 @@ export function parseCostCents(text: string) {
   return Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
 }
 
-export function formatCost(costCents: number) {
+export function costText(costCents: number) {
   const whole = Math.floor(costCents / 100);
   const fraction = String(costCents % 100).padStart(2, "0");
-  return `${whole},${fraction} zł`;
+  return `${whole},${fraction}`;
+}
+
+export function formatCost(costCents: number) {
+  return `${costText(costCents)} zł`;
 }
 
 export function isIsoDate(text: string) {
